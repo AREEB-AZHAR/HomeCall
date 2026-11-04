@@ -155,7 +155,7 @@ class Household extends ChangeNotifier {
         }
       }
       for (final p in peers.values.toList()) {
-        if (p.paired) unawaited(probe(p.ip, expected: p.id));
+        unawaited(probe(p.ip, expected: p.id));
       }
     } catch (e) {
       notice = e.toString();
@@ -180,6 +180,7 @@ class Household extends ChangeNotifier {
       final r = await channel.invokeMapMethod<String, String>('send', {
         'ip': ip,
         'expected': expected,
+        'probe': true,
         'body': envelope('HELLO', id, expected ?? '*', '', {'name': name}),
       });
       return observe(r!['id']!, r['name']!, ip);
