@@ -1,9 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val releaseKeys = Properties()
+val keyFile = rootProject.file("key.properties")
+if (keyFile.isFile) keyFile.inputStream().use(releaseKeys::load)
 
 android {
     namespace = "dev.homecall.homecall"
@@ -20,7 +26,6 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "dev.homecall.homecall"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -30,11 +35,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (keyFile.isFile) create("privateRelease") {
+            storeFile = rootProject.file(releaseKeys.getProperty("storeFile"))
+            storePassword = releaseKeys.getProperty("storePassword")
+            keyAlias = releaseKeys.getProperty("keyAlias")
+            keyPassword = releaseKeys.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            // Supply a private signing configuration before distributing a release.
+            if (keyFile.isFile) signingConfig = signingConfigs.getByName("privateRelease")
         }
     }
 }
@@ -42,4 +54,3 @@ android {
 flutter {
     source = "../.."
 }
-

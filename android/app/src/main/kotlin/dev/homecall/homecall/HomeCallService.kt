@@ -10,6 +10,11 @@ import android.media.RingtoneManager
 
 class HomeCallService : Service() {
     private val manager get() = getSystemService(NotificationManager::class.java)
+    override fun onDestroy() {
+        manager.cancel(22)
+        (application as HomeCallApp).stopListener()
+        super.onDestroy()
+    }
     override fun onBind(intent: Intent?): IBinder? = null
     private fun open(action: String, session: String = ""): PendingIntent =
         PendingIntent.getActivity(this, (action+session).hashCode(), Intent(this, MainActivity::class.java)
@@ -24,9 +29,13 @@ class HomeCallService : Service() {
         val ongoing = Notification.Builder(this,"available").setSmallIcon(android.R.drawable.sym_call_incoming)
             .setContentTitle(if(active) "HomeCall voice call" else "HomeCall is available")
             .setContentText("Tap to open HomeCall").setContentIntent(open("open")).setOngoing(true).build()
-        if(Build.VERSION.SDK_INT >= 30) startForeground(21,ongoing,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-            (if(active) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0))
+        try { if(Build.VERSION.SDK_INT >= 30) startForeground(21,ongoing,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            (if(active) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0))
         else startForeground(21,ongoing)
+        } catch(e: SecurityException) {
+            (application as HomeCallApp).event("serviceError",mapOf("session" to (intent?.getStringExtra("session") ?: ""), "text" to "Android restricted microphone access. Open HomeCall and retry."))
+            return START_NOT_STICKY
+        }
         val session = intent?.getStringExtra("session") ?: ""
         if(intent?.action == "ring") {
             val name = intent.getStringExtra("name") ?: "Paired device"

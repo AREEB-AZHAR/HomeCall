@@ -18,8 +18,20 @@ class HomeCallApp : Application() {
     private lateinit var transport: LanTransport
     private var discovery: Discovery? = null
     private var lock: WifiManager.MulticastLock? = null
+    internal val calls by lazy { CallIntegration(this) }
+    internal fun ring(session: String,name: String) {
+        startService(Intent(this,HomeCallService::class.java).setAction("ring").putExtra("session",session).putExtra("name",name))
+    }
     var activity: MainActivity? = null
     fun event(type: String, args: Map<String,String>) { main.post { channel.invokeMethod(type,args) } }
+    internal fun stopListener() {
+        discovery?.close()
+        discovery=null
+        if(lock?.isHeld==true) lock?.release()
+        lock=null
+        if(::transport.isInitialized) transport.close()
+        event("stopped",emptyMap())
+    }
     override fun onCreate() {
         super.onCreate()
         engine = FlutterEngine(this)
@@ -36,13 +48,35 @@ class HomeCallApp : Application() {
                     }
                     "start" -> {
                         transport.name = arg("name")
+                        io.execute {
+                        try {
                         transport.start()
+                        main.post { try {
                         if(lock == null) lock = getSystemService(WifiManager::class.java).createMulticastLock("homecall").apply { acquire() }
                         discovery?.close()
                         discovery = Discovery(this,transport.id,::event).also { it.start() }
                         result.success(null)
+                        } catch (e: Exception) { result.error("discovery",e.message,null) } }
+                        } catch(e: Exception) { main.post { result.error("listener",e.message,null) } }
+                        }
                     }
+                    "telecom" -> calls.request(arg("session"),arg("name"),call.argument<Boolean>("incoming")==true,result)
+                    "endTelecom" -> {
+                        activity?.clearCallWindow()
+                        if(arg("session")==calls.session) calls.end(cause=when(arg("reason")){
+                            "rejected" -> android.telecom.DisconnectCause.REJECTED
+                            "busy" -> android.telecom.DisconnectCause.BUSY
+                            "failed" -> android.telecom.DisconnectCause.ERROR
+                            else -> android.telecom.DisconnectCause.LOCAL
+                        })
+                        result.success(null)
+                    }
+                    "speaker" -> { calls.speaker(call.argument<Boolean>("value")==true);result.success(null) }
                     "service" -> {
+                        if(arg("mode")=="active") {
+                            require(checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)==android.content.pm.PackageManager.PERMISSION_GRANTED) { "Grant microphone permission in Android settings." }
+                            calls.active()
+                        }
                         val intent = Intent(this,HomeCallService::class.java).setAction(arg("mode"))
                             .putExtra("session",arg("session")).putExtra("name",arg("name")).putExtra("active",arg("mode")=="active")
                         startForegroundService(intent)
@@ -63,4 +97,5 @@ class HomeCallApp : Application() {
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
     }
 }
+
 

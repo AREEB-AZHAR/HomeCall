@@ -2,6 +2,8 @@ package dev.homecall.homecall
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import org.json.JSONObject
+import java.util.UUID
 import java.io.*
 import java.net.*
 import java.security.*
@@ -33,6 +35,8 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
     }
     val id = digest(store.getCertificate(ALIAS))
     private val keys = object : X509ExtendedKeyManager() {
+        override fun chooseEngineClientAlias(types: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?) = chooseClientAlias(types,issuers,null)
+        override fun chooseEngineServerAlias(type: String?, issuers: Array<out Principal>?, engine: SSLEngine?) = chooseServerAlias(type,issuers,null)
         override fun getPrivateKey(alias: String?) = store.getKey(ALIAS, null) as PrivateKey
         override fun getCertificateChain(alias: String?) = arrayOf(store.getCertificate(ALIAS) as X509Certificate)
         override fun getClientAliases(type: String?, issuers: Array<out Principal>?) = arrayOf(ALIAS)
@@ -60,6 +64,17 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
         require(bytes.size in 1..LIMIT)
         DataOutputStream(output).apply { writeInt(bytes.size); write(bytes); flush() }
     }
+    private fun peerInfo(to: String, requestId: String) = JSONObject().apply {
+        put("v", 1)
+        put("kind", "PEER_INFO")
+        put("id", UUID.randomUUID().toString().replace("-", ""))
+        put("from", id)
+        put("to", to)
+        put("session", "")
+        put("at", System.currentTimeMillis())
+        put("data", JSONObject().put("name", name).put("replyTo",requestId))
+    }.toString()
+
     fun start() {
         if(server != null) return
         val listener = (tls.serverSocketFactory.createServerSocket() as SSLServerSocket).apply {
@@ -79,8 +94,12 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
                         s.startHandshake()
                         val peer = digest(s.session.peerCertificates.first())
                         val body = read(DataInputStream(s.inputStream))
+                        val message = JSONObject(body)
+                        require(message.getString("from") == peer)
+                        val requestId = message.getString("id")
+                        require(requestId.matches(Regex("[a-f0-9]{32}")))
                         receive(peer, s.inetAddress.hostAddress!!, body)
-                        write(s.outputStream, name)
+                        write(s.outputStream, peerInfo(peer,requestId))
                     } }
                 } } catch (_: RejectedExecutionException) { socket.close() }
             }
@@ -98,9 +117,16 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
             val peer = digest(s.session.peerCertificates.first())
             require(peer != id && (expected == null || expected == peer)) { "Device identity mismatch" }
             write(s.outputStream, body)
-            mapOf("id" to peer, "ip" to ip, "name" to read(DataInputStream(s.inputStream)).take(40))
+            val reply = JSONObject(read(DataInputStream(s.inputStream)))
+            require(reply.getInt("v")==1 && reply.getString("kind")=="PEER_INFO")
+            require(reply.getString("from")==peer && reply.getString("to")==id)
+            val data=reply.getJSONObject("data")
+            require(data.getString("replyTo")==JSONObject(body).getString("id"))
+            val label=data.getString("name")
+            require(label.isNotBlank() && label.length<=40)
+            mapOf("id" to peer, "ip" to ip, "name" to label)
         }
     }
-    fun close() { server?.close(); server = null; workers.shutdownNow() }
+    fun close() { server?.close(); server = null;  }
 }
 

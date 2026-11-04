@@ -16,11 +16,13 @@ class MainActivity : FlutterActivity() {
     override fun onPause() { app.activity = null; super.onPause() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handle(intent) }
     private fun handle(intent: Intent?) {
-        if(intent?.action == "answer" && app.activity != null) {
+        if(intent?.action == "answer" && app.activity != null && intent.getStringExtra("session")==app.calls.session) {
+            if(Build.VERSION.SDK_INT>=27) setShowWhenLocked(true)
             intent.action = "open"
             app.event("answer",mapOf("session" to (intent.getStringExtra("session") ?: "")))
         }
     }
+    fun clearCallWindow() { if(Build.VERSION.SDK_INT>=27) setShowWhenLocked(false) }
     fun permissions() {
         val required = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if(Build.VERSION.SDK_INT >= 33) required += Manifest.permission.POST_NOTIFICATIONS
