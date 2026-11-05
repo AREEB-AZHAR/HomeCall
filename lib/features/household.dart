@@ -170,9 +170,16 @@ class Household extends ChangeNotifier {
     String? expected,
     bool manual = false,
   }) async {
-    if (addresses.contains(ip) ||
-        probing.contains(ip) ||
-        probing.length >= 12) {
+    ip = ip.trim();
+    if (addresses.contains(ip)) {
+      if (manual) {
+        notice =
+            "That is this phone's address. Enter the address shown on the other phone.";
+        notifyListeners();
+      }
+      return null;
+    }
+    if (!manual && (probing.contains(ip) || probing.length >= 12)) {
       return null;
     }
     probing.add(ip);
@@ -186,8 +193,10 @@ class Household extends ChangeNotifier {
       return observe(r!['id']!, r['name']!, ip);
     } catch (e) {
       if (manual) {
+        final reason = e is PlatformException ? e.message : e.toString();
         notice =
-            'Could not reach $ip. Check Wi-Fi, pairing and client isolation.';
+            'Could not reach $ip. ${reason ?? "Peer unavailable"}. '
+            'Check that both phones have the updated app open on the same Wi-Fi.';
         notifyListeners();
       }
       return null;

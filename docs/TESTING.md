@@ -14,13 +14,15 @@ flutter test --update-goldens tool/capture_ui_test.dart
 flutter build apk --debug
 ```
 
-An Android-only smoke test checks persistent Keystore identity and creates a real microphone stream, peer connection and audio-only Opus offer. Run on a test phone after granting microphone access. It was not executed on the development host because no Android device or bootable AVD was available.
+The Android-only smoke suite connects to the phone's own Wi-Fi listener to exercise both Keystore signatures and the TLS identity proof. It expects the deliberate self-peer rejection after the handshake. A second check verifies persistent identity and creates a real microphone stream, peer connection and audio-only Opus offer. Join an IPv4 Wi-Fi network and grant microphone access before running the suite. This device check is pending.
 
 ```sh
 flutter test integration_test/android_smoke_test.dart -d DEVICE_SERIAL
 ```
 
-The delivered debug APK identifies as package `dev.homecall.homecall`, version 1.0.0 (1), minimum API 26 and target API 36. Android Build-Tools apksigner verified its v2 signature. SHA-256 for this build is `e04a5edffd50d6f04e486cb8273d5c0df3cf58bc185ffc24db5108415dd992b1`. Rebuilding with another debug key produces a different digest.
+The native JVM transport regression creates two temporary identities, exchanges HELLO and PEER_INFO over real TLS sockets on a local IPv4 interface, reconnects using the discovered pin and rejects a mismatched pin before sending the message. Run `gradlew.bat :app:testDebugUnitTest --tests dev.homecall.homecall.LanTransportTest` from the Android directory with JAVA_HOME pointing to JDK 17 or 21. The test requires a local IPv4 interface and reports a skip when none exists.
+
+Version 1.0.1 (2) targets API 36 with minimum API 26. Its release and debug build commands are in the README.
 
 ## Two-phone acceptance record
 

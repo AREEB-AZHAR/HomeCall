@@ -17,6 +17,7 @@ class HomeCallApp : Application() {
     private val probes = Executors.newFixedThreadPool(2)
     private lateinit var transport: LanTransport
     private var discovery: Discovery? = null
+    private var beacon: LanBeacon? = null
     private var lock: WifiManager.MulticastLock? = null
     internal val calls by lazy { CallIntegration(this) }
 
@@ -38,6 +39,8 @@ class HomeCallApp : Application() {
     internal fun stopListener() {
         discovery?.close()
         discovery = null
+        beacon?.close()
+        beacon = null
         if (lock?.isHeld == true) lock?.release()
         lock = null
         if (::transport.isInitialized) transport.close()
@@ -56,12 +59,13 @@ class HomeCallApp : Application() {
                         io.execute {
                             runCatching {
                                     if (!::transport.isInitialized)
-                                        transport = LanTransport { id, ip, body ->
-                                            event(
-                                                "message",
-                                                mapOf("id" to id, "ip" to ip, "body" to body),
-                                            )
-                                        }
+                                        transport =
+                                            LanTransport(this) { id, ip, body ->
+                                                event(
+                                                    "message",
+                                                    mapOf("id" to id, "ip" to ip, "body" to body),
+                                                )
+                                            }
                                     transport.id
                                 }
                                 .fold(
@@ -85,6 +89,10 @@ class HomeCallApp : Application() {
                                                 getSystemService(WifiManager::class.java)
                                                     .createMulticastLock("homecall")
                                                     .apply { acquire() }
+                                        beacon?.close()
+                                        beacon =
+                                            LanBeacon { ip -> event("found", mapOf("ip" to ip)) }
+                                                .also { it.start() }
                                         discovery?.close()
                                         discovery =
                                             Discovery(this, transport.id, ::event).also {
@@ -92,7 +100,14 @@ class HomeCallApp : Application() {
                                             }
                                         result.success(null)
                                     } catch (e: Exception) {
-                                        result.error("discovery", e.message, null)
+                                        event(
+                                            "notice",
+                                            mapOf(
+                                                "text" to
+                                                    "Android discovery unavailable. Try Pair by local IP."
+                                            ),
+                                        )
+                                        result.success(null)
                                     }
                                 }
                             } catch (e: Exception) {

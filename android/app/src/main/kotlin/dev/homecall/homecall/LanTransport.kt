@@ -1,5 +1,9 @@
 package dev.homecall.homecall
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.io.*
@@ -15,14 +19,29 @@ import org.json.JSONObject
  * A TLS handshake proves possession. Authorization uses the peer key digest at the application
  * layer.
  */
-internal class LanTransport(private val receive: (String, String, String) -> Unit) {
+internal class LanTransport(
+    private val store: KeyStore,
+    private val connectivity: ConnectivityManager? = null,
+    private val receive: (String, String, String) -> Unit,
+) {
+    constructor(
+        context: Context,
+        receive: (String, String, String) -> Unit,
+    ) : this(
+        KeyStore.getInstance("AndroidKeyStore").apply { load(null) },
+        context.getSystemService(ConnectivityManager::class.java),
+        receive,
+    )
+
     companion object {
         const val PORT = 43871
         private const val LIMIT = 98304
         private const val ALIAS = "homecall-identity-v1"
 
-        fun digest(cert: java.security.cert.Certificate) =
-            MessageDigest.getInstance("SHA-256").digest(cert.publicKey.encoded).joinToString("") {
+        private const val TLS_ALIAS = "homecall-tls-v2"
+
+        private fun digest(key: PublicKey) =
+            MessageDigest.getInstance("SHA-256").digest(key.encoded).joinToString("") {
                 "%02x".format(it)
             }
 
@@ -41,11 +60,12 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
                 .flatMap { it.interfaceAddresses }
                 .filter { local(it.address) }
 
-        private fun linkTo(remote: InetAddress): InetAddress? {
+        private fun linkTo(remote: InetAddress, destination: InetAddress? = null): InetAddress? {
             if (!local(remote)) return null
             val target = remote.address
             return interfaces()
                 .firstOrNull { link ->
+                    if (destination != null && destination != link.address) return@firstOrNull false
                     val bytes = link.address.address
                     val prefix = link.networkPrefixLength.toInt()
                     prefix in 1..32 &&
@@ -58,23 +78,24 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
         }
     }
 
-    private val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-
     init {
-        if (!store.containsAlias(ALIAS)) {
+        // Keep existing identity pins. TLS providers sign a precomputed digest and
+        // need a distinct Keystore key authorized for NONEwithECDSA on Android.
+        for (alias in listOf(ALIAS, TLS_ALIAS)) {
+            if (store.containsAlias(alias)) continue
             KeyPairGenerator.getInstance("EC", "AndroidKeyStore").apply {
                 initialize(
                     KeyGenParameterSpec.Builder(
-                            ALIAS,
+                            alias,
                             KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
                         )
                         .setAlgorithmParameterSpec(
                             java.security.spec.ECGenParameterSpec("secp256r1")
                         )
                         .setDigests(
-                            KeyProperties.DIGEST_SHA256,
-                            KeyProperties.DIGEST_SHA384,
-                            KeyProperties.DIGEST_SHA512,
+                            *if (alias == TLS_ALIAS)
+                                arrayOf(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
+                            else arrayOf(KeyProperties.DIGEST_SHA256)
                         )
                         .build()
                 )
@@ -83,7 +104,78 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
         }
     }
 
-    val id = digest(store.getCertificate(ALIAS))
+    // A phone can keep cellular as its default while Wi-Fi has no internet.
+    // Select the Wi-Fi network owning the on-link route. Tethering hosts can
+    // expose only a local interface, in which case use the interface fallback.
+    private data class Route(val source: InetAddress, val network: Network? = null)
+
+    @Suppress("DEPRECATION")
+    private fun routeTo(remote: InetAddress, destination: InetAddress? = null): Route? {
+        if (!local(remote)) return null
+        connectivity?.let { cm ->
+            for (network in cm.allNetworks) {
+                if (
+                    cm.getNetworkCapabilities(network)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true
+                )
+                    continue
+                val properties = cm.getLinkProperties(network) ?: continue
+                if (
+                    properties.routes.none {
+                        !it.isDefaultRoute &&
+                            it.gateway?.isAnyLocalAddress != false &&
+                            it.matches(remote)
+                    }
+                )
+                    continue
+                val link =
+                    properties.linkAddresses.firstOrNull {
+                        local(it.address) && (destination == null || destination == it.address)
+                    } ?: continue
+                return Route(link.address, network)
+            }
+        }
+        return linkTo(remote, destination)?.let { Route(it) }
+    }
+
+    private val identity = store.getCertificate(ALIAS).publicKey
+    val id = digest(identity)
+    private val bindingContext = "HomeCall TLS key binding v1".toByteArray()
+    private val binding =
+        JSONObject()
+            .apply {
+                val signature =
+                    Signature.getInstance("SHA256withECDSA").apply {
+                        initSign(store.getKey(ALIAS, null) as PrivateKey)
+                        update(bindingContext)
+                        update(store.getCertificate(TLS_ALIAS).publicKey.encoded)
+                    }
+                put("key", java.util.Base64.getEncoder().encodeToString(identity.encoded))
+                put("signature", java.util.Base64.getEncoder().encodeToString(signature.sign()))
+            }
+            .toString()
+
+    private fun authenticate(socket: SSLSocket): String {
+        socket.startHandshake()
+        write(socket.outputStream, binding)
+        val proof = JSONObject(read(DataInputStream(socket.inputStream), 1024))
+        val decoder = java.util.Base64.getDecoder()
+        val key =
+            KeyFactory.getInstance("EC")
+                .generatePublic(
+                    java.security.spec.X509EncodedKeySpec(decoder.decode(proof.getString("key")))
+                )
+        val valid =
+            Signature.getInstance("SHA256withECDSA").run {
+                initVerify(key)
+                update(bindingContext)
+                update(socket.session.peerCertificates.first().publicKey.encoded)
+                verify(decoder.decode(proof.getString("signature")))
+            }
+        require(valid) { "Peer identity proof failed. Update both phones." }
+        return digest(key)
+    }
+
     private val keys =
         object : X509ExtendedKeyManager() {
             override fun chooseEngineClientAlias(
@@ -98,28 +190,28 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
                 engine: SSLEngine?,
             ) = chooseServerAlias(type, issuers, null)
 
-            override fun getPrivateKey(alias: String?) = store.getKey(ALIAS, null) as PrivateKey
+            override fun getPrivateKey(alias: String?) = store.getKey(TLS_ALIAS, null) as PrivateKey
 
             override fun getCertificateChain(alias: String?) =
-                arrayOf(store.getCertificate(ALIAS) as X509Certificate)
+                arrayOf(store.getCertificate(TLS_ALIAS) as X509Certificate)
 
             override fun getClientAliases(type: String?, issuers: Array<out Principal>?) =
-                arrayOf(ALIAS)
+                arrayOf(TLS_ALIAS)
 
             override fun getServerAliases(type: String?, issuers: Array<out Principal>?) =
-                if (type == "EC") arrayOf(ALIAS) else null
+                if (type == "EC") arrayOf(TLS_ALIAS) else null
 
             override fun chooseClientAlias(
                 types: Array<out String>?,
                 issuers: Array<out Principal>?,
                 socket: Socket?,
-            ) = if (types?.contains("EC") == true) ALIAS else null
+            ) = if (types?.contains("EC") == true) TLS_ALIAS else null
 
             override fun chooseServerAlias(
                 type: String?,
                 issuers: Array<out Principal>?,
                 socket: Socket?,
-            ) = if (type == "EC") ALIAS else null
+            ) = if (type == "EC") TLS_ALIAS else null
         }
     private val tls =
         SSLContext.getInstance("TLS").apply {
@@ -152,9 +244,9 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
     private val workers =
         ThreadPoolExecutor(4, 4, 0, TimeUnit.SECONDS, SynchronousQueue<Runnable>())
 
-    private fun read(input: DataInputStream): String {
+    private fun read(input: DataInputStream, limit: Int = LIMIT): String {
         val size = input.readInt()
-        require(size in 1..LIMIT)
+        require(size in 1..limit)
         return ByteArray(size).also(input::readFully).toString(Charsets.UTF_8)
     }
 
@@ -204,10 +296,9 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
                         workers.execute {
                             socket.use { s ->
                                 runCatching {
-                                    require(linkTo(s.inetAddress) == s.localAddress)
+                                    require(routeTo(s.inetAddress, s.localAddress) != null)
                                     s.soTimeout = 4000
-                                    s.startHandshake()
-                                    val peer = digest(s.session.peerCertificates.first())
+                                    val peer = authenticate(s)
                                     val body = read(DataInputStream(s.inputStream))
                                     val message = JSONObject(body)
                                     require(message.getString("from") == peer)
@@ -229,29 +320,31 @@ internal class LanTransport(private val receive: (String, String, String) -> Uni
     fun send(ip: String, expected: String?, body: String): Map<String, String> {
         require(ip.matches(Regex("[0-9.]{7,15}")))
         val address = InetAddress.getByName(ip)
-        val source =
-            requireNotNull(linkTo(address)) {
+        val route =
+            requireNotNull(routeTo(address)) {
                 "No directly connected local network for this address"
             }
-        return (tls.socketFactory.createSocket() as SSLSocket).use { s ->
-            s.enabledProtocols = arrayOf("TLSv1.2")
-            s.soTimeout = 4000
-            s.bind(InetSocketAddress(source, 0))
-            s.connect(InetSocketAddress(address, PORT), 3000)
-            s.startHandshake()
-            val peer = digest(s.session.peerCertificates.first())
-            require(peer != id && (expected == null || expected == peer)) {
-                "Device identity mismatch"
+        return Socket().use { tcp ->
+            route.network?.bindSocket(tcp)
+            tcp.bind(InetSocketAddress(route.source, 0))
+            tcp.connect(InetSocketAddress(address, PORT), 3000)
+            (tls.socketFactory.createSocket(tcp, ip, PORT, true) as SSLSocket).use { s ->
+                s.enabledProtocols = arrayOf("TLSv1.2")
+                s.soTimeout = 4000
+                val peer = authenticate(s)
+                require(peer != id && (expected == null || expected == peer)) {
+                    "Device identity mismatch"
+                }
+                write(s.outputStream, body)
+                val reply = JSONObject(read(DataInputStream(s.inputStream)))
+                require(reply.getInt("v") == 1 && reply.getString("kind") == "PEER_INFO")
+                require(reply.getString("from") == peer && reply.getString("to") == id)
+                val data = reply.getJSONObject("data")
+                require(data.getString("replyTo") == JSONObject(body).getString("id"))
+                val label = data.getString("name")
+                require(label.isNotBlank() && label.length <= 40)
+                mapOf("id" to peer, "ip" to ip, "name" to label)
             }
-            write(s.outputStream, body)
-            val reply = JSONObject(read(DataInputStream(s.inputStream)))
-            require(reply.getInt("v") == 1 && reply.getString("kind") == "PEER_INFO")
-            require(reply.getString("from") == peer && reply.getString("to") == id)
-            val data = reply.getJSONObject("data")
-            require(data.getString("replyTo") == JSONObject(body).getString("id"))
-            val label = data.getString("name")
-            require(label.isNotBlank() && label.length <= 40)
-            mapOf("id" to peer, "ip" to ip, "name" to label)
         }
     }
 

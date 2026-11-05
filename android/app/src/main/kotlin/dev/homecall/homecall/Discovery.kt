@@ -13,7 +13,7 @@ internal class Discovery(
 ) {
     private val nsd = context.getSystemService(NsdManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
-    private val type = "_homecall._tcp."
+    private val type = "_homecall._tcp"
     private val queue = LinkedHashMap<String, NsdServiceInfo>()
     private var busy = false
     private var closed = false
@@ -69,14 +69,13 @@ internal class Discovery(
 
                 override fun onServiceResolved(info: NsdServiceInfo) {
                     handler.post {
-                        val host = info.host
-                        if (
-                            !closed &&
-                                host != null &&
-                                LanTransport.local(host) &&
-                                info.port == LanTransport.PORT
-                        ) {
-                            emit("found", mapOf("ip" to host.hostAddress!!))
+                        val hosts =
+                            if (android.os.Build.VERSION.SDK_INT >= 34) info.hostAddresses
+                            else listOfNotNull(info.host)
+                        if (!closed && info.port == LanTransport.PORT) {
+                            hosts.filter(LanTransport::local).forEach { host ->
+                                emit("found", mapOf("ip" to host.hostAddress!!))
+                            }
                         }
                         busy = false
                         next()

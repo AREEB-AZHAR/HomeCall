@@ -1,6 +1,6 @@
 # LAN signaling v1
 
-**Transport.** IPv4 TCP port 43871. Signaling binds to a directly connected private or link-local interface matching the peer subnet. Discovery probes use separate workers from call messages. Every request opens a TLS 1.2 connection with client and server certificates. Each application record starts with a four-byte unsigned big-endian length followed by 1–98,304 UTF-8 bytes. The request contains JSON. The reply is a PEER_INFO JSON envelope. A successful write and reply acknowledges transport only. A call transition requires a separate authenticated event in the opposite direction.
+**Transport.** IPv4 TCP port 43871. Signaling binds to a directly connected private or link-local interface matching the peer subnet. Discovery probes use separate workers from call messages. Every request opens a TLS 1.2 connection with client and server certificates. Each application record starts with a four-byte unsigned big-endian length followed by 1–98,304 UTF-8 bytes. Before the request, each side writes then reads a framed JSON identity proof (maximum 1,024 bytes). Its Base64 fields are `key` (X.509 SubjectPublicKeyInfo) and `signature` (SHA256withECDSA over the UTF-8 domain string `HomeCall TLS key binding v1` immediately followed by the DER-encoded TLS public key). Each side verifies the signature against the certificate presented in this handshake and derives the device ID from the identity public key. The request contains JSON. The reply is a PEER_INFO JSON envelope. A successful write and reply acknowledges transport only. A call transition requires a separate authenticated event in the opposite direction.
 
 | Field | Meaning |
 | --- | --- |
@@ -25,4 +25,4 @@
 
 The lower lexical device digest keeps its outgoing invitation when two paired phones call each other simultaneously. Other callers receive busy. The invitation deadline is 30 seconds and negotiation gets 35 seconds. Unknown senders cannot ring. The inbox rejects unsupported versions, stale or duplicate IDs, wrong recipients and malformed payloads. It retains up to 1,024 sender/message combinations.
 
-DNS-SD uses `_homecall._tcp.local.` and TXT `v=1`. Only successful TLS contact refreshes identity and presence. Client isolation can prevent both direct IP pairing and calls even when DNS-SD entries are visible.
+DNS-SD uses `_homecall._tcp.local.` and TXT `v=1`. Each interface also sends the ASCII marker `HomeCall/discover/2` to its directed broadcast on UDP 43872 every 10 seconds. A received marker triggers a TLS probe of the packet source. Only successful TLS contact refreshes identity and presence. Client isolation can prevent both direct IP pairing and calls even when DNS-SD entries are visible.

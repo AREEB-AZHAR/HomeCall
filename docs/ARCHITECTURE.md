@@ -16,7 +16,7 @@ Each phone runs the same components. Calling requires a reachable LAN interface,
 
 ### From discovery to audio
 
-1. NSD advertises the TCP port and protocol version. Resolving an entry triggers a TLS HELLO. Manual IP entry runs the same probe.
+1. NSD advertises the TCP port and protocol version. Resolving an entry triggers a TLS HELLO. A directed UDP broadcast provides a second discovery path. Manual IP entry runs the same probe. TLS uses the Wi-Fi network with a directly connected route to the peer when Android exposes it, including when cellular is the default network.
 2. Each user compares the remote identity code with the code on the other phone. SQLite stores the full public-key digest and last address.
 3. The caller requests Telecom admission and sends a pinned invitation. The receiving phone checks pairing, rate limits and current session before registering an incoming Telecom connection.
 4. On acceptance the receiver opens audio and signals acceptance. The caller creates an offer and the receiver returns an answer. Each side queues early host ICE candidates until the remote description exists.

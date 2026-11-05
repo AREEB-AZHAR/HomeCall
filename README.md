@@ -4,7 +4,13 @@
 
 | Build | Android | Verification |
 | --- | --- | --- |
-| Flutter 3.41.3 · Dart 3.11.1 | API 26+ · Kotlin · self-managed Telecom | Debug APK compiled · 10 automated tests passed · two-phone audio acceptance pending |
+| Flutter 3.41.3 · Dart 3.11.1 | API 26+ · Kotlin · self-managed Telecom | Debug APK compiled · 10 Flutter tests and a native two-peer TLS test passed · two-phone audio acceptance pending |
+
+## Version 1.0.1
+
+<img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="HomeCall house and handset icon" width="80">
+
+Update both phones together. This version uses the existing device identity to authenticate a separate Android TLS key. It selects the local Wi-Fi route and also discovers peers through a small UDP broadcast when DNS-SD misses them. Keep both apps open for the first check. Allow about 10 seconds, then try **Pair by local IP** using the address displayed on the other phone. Manual lookup shows the underlying connection error.
 
 ## Try a call on two phones
 
@@ -46,6 +52,10 @@ adb -s SERIAL_B install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 
 Replace SERIAL_A and SERIAL_B with the actual IDs. Open HomeCall from each launcher. For an attached development session, run `flutter run -d SERIAL_A`.
+
+### Build output
+
+Flutter reports the number of unused Material Icons removed from a release. Keeping this optimization produces a smaller APK. HomeCall compiles the WebRTC plugin with Java and Kotlin target 17. Its upstream Java code still uses deprecated APIs and unchecked operations. Normal builds omit the vendor notes. To inspect individual diagnostics, run `gradlew.bat :flutter_webrtc:compileReleaseJavaWithJavac -PhomecallVendorLint=true` from the Android directory on Windows.
 
 ### Signed release
 
