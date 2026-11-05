@@ -297,7 +297,7 @@ class _DashboardState extends State<Dashboard> {
       ),
     const ListTile(
       title: Text('HomeCall'),
-      subtitle: Text('Version 1.0.1 · Local voice'),
+      subtitle: Text('Version 1.0.2 · Local voice'),
     ),
   ];
   List<Widget> callScreen() {

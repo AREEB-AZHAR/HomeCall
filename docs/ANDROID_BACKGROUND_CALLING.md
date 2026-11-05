@@ -1,5 +1,7 @@
 # Android background calling
 
+Availability, ringing and active calls use notification ID 21 through startForeground. The incoming CallStyle notification uses the high-importance incoming channel and is attached to the foreground service. Returning to availability replaces the call notification on the same ID. The Dart call deadline ends unanswered calls. Android must retain a valid foreground notification throughout this sequence.
+
 Setup starts the local listener and a visible connected-device foreground service. An application-scoped Flutter engine receives native callbacks while the process survives. The app holds a multicast lock for discovery. Destroying the service stops advertising, releases the lock and closes the listener.
 
 HomeCall uses the platform self-managed ConnectionService available from API 26. It registers a PhoneAccount with MANAGE_OWN_CALLS, asks Telecom to place or admit each call, and sets audioModeIsVoip. Telecom can refuse a call when another system call takes priority. Audio route requests go through the Telecom connection. Incoming notifications are posted in response to onShowIncomingCallUi. Android 12 and later use CallStyle. Older versions receive category-call notifications with actions. Ringtone playback follows the incoming-call channel and the user's sound settings. [Android ConnectionService](https://developer.android.com/reference/android/telecom/ConnectionService)

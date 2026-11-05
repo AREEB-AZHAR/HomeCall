@@ -12,6 +12,7 @@ val keyFile = rootProject.file("key.properties")
 if (keyFile.isFile) keyFile.inputStream().use(releaseKeys::load)
 
 android {
+    testOptions.unitTests.isIncludeAndroidResources = true
     namespace = "dev.homecall.homecall"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
@@ -57,6 +58,7 @@ flutter {
 }
 
 dependencies {
+    testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

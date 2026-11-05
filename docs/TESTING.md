@@ -22,7 +22,9 @@ flutter test integration_test/android_smoke_test.dart -d DEVICE_SERIAL
 
 The native JVM transport regression creates two temporary identities, exchanges HELLO and PEER_INFO over real TLS sockets on a local IPv4 interface, reconnects using the discovered pin and rejects a mismatched pin before sending the message. Run `gradlew.bat :app:testDebugUnitTest --tests dev.homecall.homecall.LanTransportTest` from the Android directory with JAVA_HOME pointing to JDK 17 or 21. The test requires a local IPv4 interface and reports a skip when none exists.
 
-Version 1.0.1 (2) targets API 36 with minimum API 26. Its release and debug build commands are in the README.
+Version 1.0.2 (3) targets API 36 with minimum API 26. Its release and debug build commands are in the README.
+
+The notification regression runs the actual HomeCallService under Robolectric on API 26, 31 and 35. All six checks passed. They verify that ringing is the foreground notification, answering replaces it with an ongoing call, and returning to availability clears the incoming actions. Run `gradlew.bat :app:testDebugUnitTest --tests dev.homecall.homecall.HomeCallServiceTest` from the Android directory. Repeat the incoming call on the affected physical phone to confirm its notification behavior.
 
 ## Two-phone acceptance record
 

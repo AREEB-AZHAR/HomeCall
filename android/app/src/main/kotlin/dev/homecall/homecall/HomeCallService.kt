@@ -3,6 +3,7 @@ package dev.homecall.homecall
 import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
@@ -74,7 +75,54 @@ class HomeCallService : Service() {
                 Person.Builder().setName(intent?.getStringExtra("name") ?: "Household call").build()
             status.setStyle(Notification.CallStyle.forOngoingCall(person, end))
         }
-        val ongoing = status.build()
+        var ongoing = status.build()
+        val session = intent?.getStringExtra("session") ?: ""
+        if (intent?.action == "ring") {
+            val name = intent.getStringExtra("name") ?: "Paired device"
+            val answer = open("answer", session)
+            val decline =
+                PendingIntent.getBroadcast(
+                    this,
+                    session.hashCode(),
+                    Intent(this, CallAction::class.java).putExtra("session", session),
+                    PendingIntent.FLAG_IMMUTABLE,
+                )
+            val builder =
+                Notification.Builder(this, "ring")
+                    .setSmallIcon(android.R.drawable.sym_call_incoming)
+                    .setCategory(Notification.CATEGORY_CALL)
+                    .setContentTitle(name)
+                    .setContentText("Incoming HomeCall voice call")
+                    .setContentIntent(open("open", session))
+                    .setOngoing(true)
+            if (Build.VERSION.SDK_INT >= 31)
+                builder.setStyle(
+                    Notification.CallStyle.forIncomingCall(
+                        Person.Builder().setName(name).build(),
+                        decline,
+                        answer,
+                    )
+                )
+            else
+                builder
+                    .addAction(
+                        Notification.Action.Builder(
+                            Icon.createWithResource(this, android.R.drawable.sym_call_missed),
+                            "Decline",
+                            decline,
+                        ).build()
+                    )
+                    .addAction(
+                        Notification.Action.Builder(
+                            Icon.createWithResource(this, android.R.drawable.sym_call_incoming),
+                            "Answer",
+                            answer,
+                        ).build()
+                    )
+            ongoing = builder.build()
+        }
+        // CallStyle must be the notification supplied to startForeground.
+        // Use the same ID when returning to availability to remove ring actions.
         try {
             if (Build.VERSION.SDK_INT >= 30)
                 startForeground(
@@ -97,39 +145,7 @@ class HomeCallService : Service() {
             )
             return START_NOT_STICKY
         }
-        val session = intent?.getStringExtra("session") ?: ""
-        if (intent?.action == "ring") {
-            val name = intent.getStringExtra("name") ?: "Paired device"
-            val answer = open("answer", session)
-            val decline =
-                PendingIntent.getBroadcast(
-                    this,
-                    session.hashCode(),
-                    Intent(this, CallAction::class.java).putExtra("session", session),
-                    PendingIntent.FLAG_IMMUTABLE,
-                )
-            val builder =
-                Notification.Builder(this, "ring")
-                    .setSmallIcon(android.R.drawable.sym_call_incoming)
-                    .setCategory(Notification.CATEGORY_CALL)
-                    .setContentTitle(name)
-                    .setContentText("Incoming HomeCall voice call")
-                    .setContentIntent(open("open", session))
-                    .setTimeoutAfter(30000)
-            if (Build.VERSION.SDK_INT >= 31)
-                builder.setStyle(
-                    Notification.CallStyle.forIncomingCall(
-                        Person.Builder().setName(name).build(),
-                        decline,
-                        answer,
-                    )
-                )
-            else
-                builder
-                    .addAction(android.R.drawable.sym_call_missed, "Decline", decline)
-                    .addAction(android.R.drawable.sym_call_incoming, "Answer", answer)
-            manager.notify(22, builder.build())
-        } else manager.cancel(22)
+        manager.cancel(22) // Remove a notification left by a previous app version.
         return START_NOT_STICKY
     }
 }

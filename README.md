@@ -4,9 +4,11 @@
 
 | Build | Android | Verification |
 | --- | --- | --- |
-| Flutter 3.41.3 · Dart 3.11.1 | API 26+ · Kotlin · self-managed Telecom | Debug APK compiled · 10 Flutter tests and a native two-peer TLS test passed · two-phone audio acceptance pending |
+| Flutter 3.41.3 · Dart 3.11.1 | API 26+ · Kotlin · self-managed Telecom | Flutter and native TLS tests passed · six notification regression checks passed · two-phone audio acceptance pending |
 
-## Version 1.0.1
+## Version 1.0.2
+
+Incoming calls now use the foreground service notification directly. This fixes the reported Android crash when a separate incoming CallStyle notification was rejected. Answering replaces it with the ongoing call, and declining or ending a call restores availability.
 
 <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="HomeCall house and handset icon" width="80">
 
