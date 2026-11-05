@@ -22,11 +22,11 @@
 
 Install the Flutter 3.41.3 stable SDK, add its bin directory to PATH, and install Android Studio with a JDK compatible with Gradle 8.14 (JDK 17 or 21). Install Android SDK Platform 36, Platform 35 if requested by plugins, Build-Tools, Platform-Tools, Command-line Tools and the NDK version requested by Gradle. The build machine needs internet for the initial package and SDK downloads. [Flutter Android setup](https://docs.flutter.dev/platform-integration/android/setup)
 
-This checkout is a local Git repository. To clone it on this Windows machine, use the first two commands below. When a remote is published, substitute its URL for the source path. If you already have the project open, start at `flutter doctor -v`.
+Clone HomeCall from GitHub and run the following commands. If you already have the project open, start at `flutter doctor -v`.
 
 ```powershell
-git clone "C:/Users/areeb/Desktop/folders/HomeCall" HomeCall-dev
-cd HomeCall-dev
+git clone https://github.com/AREEB-AZHAR/HomeCall.git
+cd HomeCall
 flutter doctor -v
 flutter doctor --android-licenses
 flutter pub get
